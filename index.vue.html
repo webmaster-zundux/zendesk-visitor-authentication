@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <title>Zendesk visitor authentication (Vue version)</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="googlebot" content="noindex, nofollow">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!--  <script src="https://cdn.jsdelivr.net/npm/jsonwebtoken@8.5.1/index.js"></script>-->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.19.0/axios.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.6.10/vue.min.js"></script>
+
+  <style id="compiled-css" type="text/css">
+    html,
+    body,
+    * {
+      margin: 0;
+    }
+
+    p,
+    form,
+    button {
+      margin: 1em;
+    }
+
+  </style>
+
+
+  <script type="text/javascript">
+    window.onload = function () {
+      const suffix = `vue-${parseInt(Math.random() * 10)}`
+
+      const app = new Vue({
+        el: '#demo',
+        data: {
+          msg: '',
+          widgetCode: '3409e332-c14f-4921-9e5b-7d4f2a2862a4',
+          zendeskChatWidgetVisitorAuthenticationSharedSecret: '1E2B4D8862C59D0211554EA748FED6EE40F62007398E1031049E52F8845C15B8',
+          externalId: `1000000${suffix}`,
+          name: `Elf ${suffix}`,
+          email: `elf${suffix}.santa@test.test`,
+          isSignedIn: false,
+        },
+        methods: {
+          async generateJWTTokenByAPI(data) {
+            var request = axios.create({
+              withCredentials: true, // for using cookies
+              headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+              }
+            });
+
+            const url = `${window.location.origin}/jwt`
+            const options = {
+              mode: 'cors'
+            }
+
+            return await request.post(url, data, options)
+          },
+          async getAuthJWTTokenForZendeskWidget() {
+            try {
+              if (!this.isSignedIn) {
+                return null
+              }
+
+              const response = await this.generateJWTTokenByAPI({
+                email: this.email,
+                name: this.name,
+                externalId: this.externalId,
+                zendeskChatWidgetVisitorAuthenticationSharedSecret: this.zendeskChatWidgetVisitorAuthenticationSharedSecret
+              })
+
+              if (response && response.data && response.data.token) {
+                return response.data.token
+              }
+            } catch (e) {
+              return null
+            }
+
+            return null
+          },
+          async initZendeskAuthWidgetDataScript() {
+            const authJWTToken = await this.getAuthJWTTokenForZendeskWidget()
+
+            if (authJWTToken) {
+              window.zESettings = {
+                webWidget: {
+                  authenticate: {
+                    chat: {
+                      jwtFn: function (callback) {
+                        console.log('window.zESettings.webWidget.authenticate.chat.jwtFn', {
+                          email: this.email,
+                          name: this.name,
+                          externalId: this.externalId,
+                          zendeskChatWidgetVisitorAuthenticationSharedSecret: this.zendeskChatWidgetVisitorAuthenticationSharedSecret
+                        }, authJWTToken)
+                        callback(authJWTToken)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          updateZendeskVisitorData: (title, url) => {
+            if (!window.zE) {
+              return
+            }
+
+            const pageData = {
+              title: title || window.document.querySelector('head title').text,
+              url: url || window.location.href
+            }
+
+            console.log('webWidget', 'updatePath', pageData)
+            window.zE('webWidget', 'updatePath', pageData)
+          },
+          async initZendeskScript() {
+            const zendeskInitScriptId = 'ze-snippet'
+            const zendeskInitScriptElement = document.querySelectorAll(`#${zendeskInitScriptId}`)[0]
+
+            if (zendeskInitScriptElement) {
+              this.prefillZendeskWidget()
+              return
+            }
+
+            if (this.isSignedIn) {
+              await this.initZendeskAuthWidgetDataScript()
+            }
+
+            const zendeskWidgetKey = this.widgetCode.substring(0, 4) === '<!--' ?
+              this.widgetCode.split('"')[3].split('?=')[1] :
+              this.widgetCode;
+
+            const zendeskScript = document.createElement('script')
+
+            zendeskScript.setAttribute('id', zendeskInitScriptId)
+            zendeskScript.setAttribute('src', `https://static.zdassets.com/ekr/snippet.js?key=${zendeskWidgetKey}`)
+
+            zendeskScript.onload = this.onLoadZendeskWidget
+
+            document.body.appendChild(zendeskScript)
+          },
+          onLoadZendeskWidget() {
+            this.prefillZendeskWidget()
+            this.identifyZendeskWidget()
+            this.setTagsZendeskWidget()
+            this.updateZendeskVisitorData()
+          },
+          prefillZendeskWidget() {
+            if (!window.zE) {
+              return
+            }
+
+            if (!this.isSignedIn) {
+              return
+            }
+
+            const ClientDataForForm = {
+              email: {value: this.email, readOnly: true},
+              name: {value: this.name, readOnly: true}
+            }
+
+            console.log('webWidget', 'prefill', ClientDataForForm)
+            window.zE('webWidget', 'prefill', ClientDataForForm)
+          },
+          identifyZendeskWidget() {
+            if (!window.zE) {
+              return
+            }
+
+            if (!this.isSignedIn) {
+              return
+            }
+
+            const ClientData = {
+              email: this.email,
+              name: this.name,
+            }
+
+            console.log('webWidget', 'identify', ClientData)
+            window.zE('webWidget', 'identify', ClientData)
+          },
+          setTagsZendeskWidget() {
+            if (!window.zE) {
+              return
+            }
+
+            if (!this.isSignedIn) {
+              return
+            }
+
+            const widgetData = {
+              webWidget: {
+                contactForm: {tags: ['test-tag-for-contact-form']},
+                chat: {tags: ['test-tag-for-chat']}
+              }
+            }
+
+            console.log('webWidget', 'updateSettings', widgetData)
+            window.zE('webWidget', 'updateSettings', widgetData)
+          },
+          logoutZendeskWidget() {
+            if (!window.zE) {
+              return
+            }
+
+            console.log('webWidget', 'logout')
+            window.zE('webWidget', 'logout')
+          },
+          async onSubmitForm() {
+          },
+          onSignIn() {
+            this.isSignedIn = true
+            window.sessionStorage.setItem('isSignedIn', JSON.stringify(true))
+            this.onReloadPage()
+          },
+          onLogout() {
+            this.isSignedIn = false
+            window.sessionStorage.setItem('isSignedIn', JSON.stringify(false))
+            this.logoutZendeskWidget()
+            this.onReloadPage()
+          },
+          onReloadPage() {
+            window.location.reload()
+          },
+          onUpdateUserData() {
+            this.updateZendeskVisitorData('page 2', 'http://some.test:3000/page-2')
+          }
+        },
+        mounted() {
+          this.isSignedIn = !!JSON.parse(window.sessionStorage.getItem('isSignedIn'))
+          this.initZendeskScript()
+        }
+      })
+    }
+  </script>
+
+</head>
+<body>
+<div id="demo">
+  <form id="form" @submit.prevent.stop="onSubmitForm">
+    <p v-if="msg">
+      <label>Message</label>
+      {{msg}}
+    </p>
+
+    <p>
+      <label for="widgetCode">Widget key</label>
+      <br>
+      <input id="widgetCode" type="text" v-model="widgetCode">
+      {{widgetCode}}
+    </p>
+
+    <p>
+      <label for="externalId">User id</label>
+      <br>
+      <input id="externalId" type="text" v-model="externalId">
+      {{externalId}}
+    </p>
+    <p>
+      <label for="name">User name</label>
+      <br>
+      <input id="name" type="text" v-model="name">
+      {{name}}
+    </p>
+    <p>
+      <label for="email">Email</label>
+      <br>
+      <input id="email" type="text" v-model="email">
+      {{email}}
+    </p>
+
+    <p>
+    <pre>data: {{$data | json}}</pre>
+    </p>
+
+    <!--    <button type="submit">Submit form</button>-->
+    <!--    <button type="reset">Reset form</button>-->
+  </form>
+
+  <button @click="onSignIn">Sign in (using sessionStorage)</button>
+  <button @click="onLogout">Logout (using sessionStorage)</button>
+  <br>
+  <button @click="onReloadPage">Reload widget (by reload page)</button>
+  <br>
+  <button @click="onUpdateUserData">update user data</button>
+</div>
+</body>
+</html>

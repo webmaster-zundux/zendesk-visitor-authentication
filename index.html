@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <title>Zendesk visitor authentication</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="googlebot" content="noindex, nofollow">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style type="text/css">
+    html,
+    body,
+    * {
+      margin: 0;
+    }
+
+    p,
+    form,
+    button {
+      margin: 1em;
+    }
+
+    input {
+      margin: 0.5em 0.5em 0.5em 0;
+      width: 100%;
+    }
+
+    #formDataAsJson {
+      margin-left: 1em;
+    }
+  </style>
+
+
+  <script type="text/javascript">
+    var formData = {}
+    var FORM_DATA_KEY_NAME = 'zendeskFormData'
+
+    function getDefaultFormData() {
+      var suffix = parseInt(Math.random() * 1000)
+
+      return {
+        widgetCode: '3409e332-c14f-4921-9e5b-7d4f2a2862a4',
+        zendeskChatWidgetVisitorAuthenticationSharedSecret: '1E2B4D8862C59D0211554EA748FED6EE40F62007398E1031049E52F8845C15B8',
+        externalId: `${suffix}`,
+        name: `Elf ${suffix}`,
+        email: `elf${suffix}.santa@test.test`,
+        isSignedIn: false,
+      }
+    }
+
+    async function generateJWTTokenByAPI(data) {
+      var url = `${window.location.origin}/jwt`
+      var rawResponse = await fetch(url, {
+        method: 'POST',
+        mode: 'cors',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: data.email,
+          name: data.name,
+          externalId: data.externalId,
+          zendeskChatWidgetVisitorAuthenticationSharedSecret: data.zendeskChatWidgetVisitorAuthenticationSharedSecret,
+        })
+      });
+      return {data: await rawResponse.json()};
+    }
+
+    async function getAuthJWTTokenForZendeskWidget(data) {
+      try {
+        if (!data.isSignedIn) {
+          return null
+        }
+
+        var response = await generateJWTTokenByAPI(data)
+
+        if (response && response.data && response.data.token) {
+          return response.data.token
+        }
+      } catch (e) {
+        return null
+      }
+
+      return null
+    }
+
+    async function initZendeskAuthWidgetDataScript() {
+      var authJWTToken = await getAuthJWTTokenForZendeskWidget(formData)
+
+      if (authJWTToken) {
+        window.zESettings = {
+          webWidget: {
+            authenticate: {
+              chat: {
+                jwtFn: function (callback) {
+                  console.log('window.zESettings.webWidget.authenticate.chat.jwtFn', formData, authJWTToken)
+                  callback(authJWTToken)
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    function updateZendeskVisitorData(title, url) {
+      if (!window.zE) {
+        return
+      }
+
+      var pageData = {
+        title: title || window.document.querySelector('head title').text,
+        url: url || window.location.href
+      }
+
+      console.log('webWidget', 'updatePath', pageData)
+      window.zE('webWidget', 'updatePath', pageData)
+    }
+
+    function getWidgetKey(widgetCode) {
+      return widgetCode.substring(0, 4) === '<!--' ?
+        widgetCode.split('"')[3].split('?=')[1] :
+        widgetCode;
+    }
+
+    async function initZendeskScript() {
+      var zendeskInitScriptId = 'ze-snippet'
+      var zendeskInitScriptElement = document.querySelectorAll(`#${zendeskInitScriptId}`)[0]
+
+      if (zendeskInitScriptElement) {
+        prefillZendeskWidget()
+        return
+      }
+
+      if (formData.isSignedIn) {
+        await initZendeskAuthWidgetDataScript()
+      }
+
+      var zendeskWidgetKey = getWidgetKey(formData.widgetCode)
+
+      var zendeskScript = document.createElement('script')
+
+      zendeskScript.setAttribute('id', zendeskInitScriptId)
+      zendeskScript.setAttribute('src', `https://static.zdassets.com/ekr/snippet.js?key=${zendeskWidgetKey}`)
+
+      zendeskScript.onload = onLoadZendeskWidget
+
+      document.body.appendChild(zendeskScript)
+    }
+
+    function onLoadZendeskWidget() {
+      prefillZendeskWidget()
+      identifyZendeskWidget()
+      setTagsZendeskWidget()
+      updateZendeskVisitorData()
+    }
+
+    function prefillZendeskWidget() {
+      if (!window.zE) {
+        return
+      }
+
+      if (!formData.isSignedIn) {
+        return
+      }
+
+      var ClientDataForForm = {
+        email: {value: formData.email, readOnly: true},
+        name: {value: formData.name, readOnly: true}
+      }
+
+      console.log('webWidget', 'prefill', ClientDataForForm)
+      window.zE('webWidget', 'prefill', ClientDataForForm)
+    }
+
+    function identifyZendeskWidget() {
+      if (!window.zE) {
+        return
+      }
+
+      if (!formData.isSignedIn) {
+        return
+      }
+
+      var ClientData = {
+        email: formData.email,
+        name: formData.name,
+      }
+
+      console.log('webWidget', 'identify', ClientData)
+      window.zE('webWidget', 'identify', ClientData)
+    }
+
+    function setTagsZendeskWidget() {
+      if (!window.zE) {
+        return
+      }
+
+      if (!formData.isSignedIn) {
+        return
+      }
+
+      var widgetData = {
+        webWidget: {
+          contactForm: {tags: ['test-tag-for-contact-form']},
+          chat: {tags: ['test-tag-for-chat']}
+        }
+      }
+
+      console.log('webWidget', 'updateSettings', widgetData)
+      window.zE('webWidget', 'updateSettings', widgetData)
+    }
+
+    function logoutZendeskWidget() {
+      if (!window.zE) {
+        return
+      }
+
+      console.log('webWidget', 'logout')
+      window.zE('webWidget', 'logout')
+    }
+
+    window.onSignIn = function onSignIn() {
+      formData.isSignedIn = true
+      updateFormDataJsonBlock()
+      window.sessionStorage.setItem(FORM_DATA_KEY_NAME, JSON.stringify(formData))
+      onReloadPage()
+    }
+
+    window.onLogout = function onLogout() {
+      formData.isSignedIn = false
+      updateFormDataJsonBlock()
+      window.sessionStorage.removeItem(FORM_DATA_KEY_NAME)
+      logoutZendeskWidget()
+      onReloadPage()
+    }
+
+    window.onReloadPage = function onReloadPage() {
+      window.location.reload()
+    }
+
+    window.onUpdateUserData = function onUpdateUserData() {
+      updateZendeskVisitorData('page 2', `${window.location.origin}/page-2`)
+    }
+
+    function updateFormDataJsonBlock() {
+      var html = JSON.stringify(formData)
+        .replace(/,/gi, ',<br>')
+        .replace(/{/gi, '{<br>')
+        .replace(/}/gi, '<br>}')
+      document.querySelector('#formDataAsJson').innerHTML = html
+    }
+
+    function setFormData() {
+      Object.keys(formData).map((key) => {
+        var element = document.querySelector(`form [name="${key}"]`)
+        if (!element) {
+          return
+        }
+
+        element.value = formData[key];
+      });
+    }
+
+    function initForm() {
+      try {
+        formData = JSON.parse(window.sessionStorage.getItem(FORM_DATA_KEY_NAME)) || getDefaultFormData()
+      } catch (e) {
+        formData = getDefaultFormData()
+      }
+
+      setFormData()
+      updateFormDataJsonBlock()
+    }
+
+    window.updateField = function updateField(field) {
+      formData[field.name] = field.value
+      updateFormDataJsonBlock()
+    }
+
+    window.onload = function () {
+      initForm()
+      initZendeskScript()
+    }
+  </script>
+
+</head>
+<body>
+<div>
+  <form onsubmit="return false">
+    <p>
+      <label for="widgetCode">
+        Widget key
+        <i>
+          ( Can be found on the page: https://mouse7.zendesk.com/agent/admin/widget )
+        </i>
+      </label>
+      <br>
+      <input id="widgetCode" name="widgetCode" type="text" oninput="window.updateField(this)">
+    </p>
+
+    <p>
+      <label for="zendeskChatWidgetVisitorAuthenticationSharedSecret">
+        Chat widget visitor authentication shared secret
+        <i>
+          ( Can be found on the page: https://mouse7.zendesk.com/chat/agent#widget/widget_security )
+        </i>
+      </label>
+      <br>
+      <input
+        id="zendeskChatWidgetVisitorAuthenticationSharedSecret"
+        name="zendeskChatWidgetVisitorAuthenticationSharedSecret"
+        type="text"
+        oninput="window.updateField(this)">
+    </p>
+
+    <p>
+      <label for="externalId">User id</label>
+      <br>
+      <input id="externalId" name="externalId" type="text" oninput="window.updateField(this)">
+    </p>
+    <p>
+      <label for="name">User name</label>
+      <br>
+      <input id="name" name="name" type="text" oninput="window.updateField(this)">
+    </p>
+    <p>
+      <label for="email">Email</label>
+      <br>
+      <input id="email" name="email" type="email" oninput="window.updateField(this)">
+    </p>
+
+    <p>
+    <pre id="formDataAsJson"></pre>
+    </p>
+
+    <button onclick="window.onSignIn()">Sign in (using sessionStorage)</button>
+    <br>
+    <button onclick="window.onLogout()">Logout (clean sessionStorage)</button>
+    <br>
+    <button onclick="window.onReloadPage()">Reload widget (reload page)</button>
+    <br>
+    <button onclick="window.onUpdateUserData()">update user data (send a page location data)</button>
+    <br>
+    <button type="reset">Reset form</button>
+  </form>
+</div>
+</body>
+</html>
